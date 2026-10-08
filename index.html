@@ -53,6 +53,7 @@
   .badge.off{background:var(--wk-off);color:var(--wk-off-ink)}
   .grp{font-size:12px;color:var(--sub);margin-top:4px}
   .empty{text-align:center;color:var(--sub);padding:38px 0;font-size:14px}
+  .notice{color:var(--sub);font-size:12px;line-height:1.6;margin:0 2px 10px}
 
   /* 周横版表格 */
   .wscroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 2px}
@@ -120,7 +121,7 @@
   <div id="content"></div>
 
   <div class="foot">
-    数据来自《课表.doc》（学期代码 2026202701）。右上角 ⚙ 可改「学期第一周星期一」日期。计算全部在本地完成，不上传数据。
+    数据来自《课表.doc》（学期代码 2026202701）。右上角 ⚙ 请设置实际的「学期第一周星期一」日期；未设置时显示课程总览。计算全部在本地完成，不上传数据。
   </div>
 </div>
 
@@ -130,7 +131,7 @@
     <h3>学期设置</h3>
     <label for="semStart">学期第一周 · 星期一 的日期</label>
     <input type="date" id="semStart">
-    <div class="hint" id="semHint">用于把日历日期换算成「第几教学周」。设置后会保存在本机。</div>
+    <div class="hint" id="semHint" role="status">用于把日历日期换算成「第几教学周」。设置后会保存在本机。</div>
     <button class="save" id="saveSem">保存</button>
   </div>
 </div>
@@ -159,8 +160,8 @@ const COURSES = [
  {dow:1,p0:12,p1:13,s:"第12–13节",time:"19:25 – 21:05",name:"免疫药理学",code:"PHAR70023.01",weeks:["2-3,5-14"],teachers:"鲍维廉、刘泽众",room:"Z2202"},
 
  {dow:3,p0:2,p1:4,s:"第2–4节",time:"8:55 – 11:35",name:"高级药剂学选论",code:"PHAR60023.01",weeks:["2-16"],teachers:"沈腾、姜嫣嫣、沙先谊、张志文",room:"Z2202"},
- {dow:3,p0:6,p1:6,s:"第6节",time:"13:30 – 14:15",name:"人工智能药物设计",code:"AIS310020.01",weeks:["2-4,6-14"],teachers:"李嫣、王任小、戚逸飞、付伟、李炜、陆伟",room:"Z2203"},
- {dow:3,p0:7,p1:8,s:"第7–8节",time:"14:25 – 16:10",name:"人工智能药物设计",code:"AIS310020.01",weeks:["2-4,6-14"],teachers:"李嫣、王任小、戚逸飞、付伟、李炜、陆伟",room:"Z2203"},
+ {dow:3,p0:6,p1:6,s:"第6节",time:"13:30 – 14:15",name:"人工智能药物设计",code:"AIS310020.01",weeks:["2-4,6-14"],teachers:"李嫣、王任小、戚逸飞、付伟、李炜、陆伟",room:"Z2203",inPerson:true},
+ {dow:3,p0:7,p1:8,s:"第7–8节",time:"14:25 – 16:10",name:"人工智能药物设计",code:"AIS310020.01",weeks:["2-4,6-14"],teachers:"李嫣、王任小、戚逸飞、付伟、李炜、陆伟",room:"Z2203",inPerson:true},
 
  {dow:4,p0:1,p1:2,s:"第1–2节",time:"8:00 – 9:40",name:"学术英语（医学）",code:"GEEF40014.09",weeks:["1-16"],teachers:"陈雪雷",room:"Z2303"},
  {dow:4,p0:6,p1:9,s:"第6–9节",time:"13:30 – 17:05",name:"药物靶向传释系统",code:"PHAR60013.01",weeks:["2-3,5-16"],teachers:"蒋晨、魏刚、庞志清、陈键、王聪、潘俊、姜嫣嫣、陆伟跃",room:"Z2201"},
@@ -182,14 +183,31 @@ const WEEK_FULL=["星期日","星期一","星期二","星期三","星期四","�
 
 const $=s=>document.querySelector(s);
 const clearTime=d=>{d.setHours(0,0,0,0);return d};
-function parseSem(s){if(!s)return null;const d=new Date(s+"T00:00:00");return isNaN(d)?null:d}
-function getSem(){return parseSem(localStorage.getItem('kb_semstart'))}
+const dateKey=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+function parseSem(s){
+  if(!s||!/^\d{4}-\d{2}-\d{2}$/.test(s))return null;
+  const d=new Date(s+"T00:00:00");
+  return isNaN(d)||dateKey(d)!==s?null:d;
+}
+function getSem(){const d=parseSem(localStorage.getItem('kb_semstart'));return d&&d.getDay()===1?d:null}
 function weekOf(d){const sem=getSem();if(!sem)return null;const diff=Math.round((clearTime(new Date(d))-clearTime(new Date(sem)))/86400000);return Math.floor(diff/7)+1}
-function matchWeek(specs,w){if(w==null)return true;return specs.some(s=>{const p=s.split('-').map(Number);const a=p[0],b=p[1]||p[0];return w>=a&&w<=b;})}
-function roomFor(c,w){return (w!=null&&c.onlineWeeks&&c.onlineWeeks.includes(w))?'线上':c.room;}
+function matchWeek(specs,w){
+  if(w==null)return true;
+  return specs.some(s=>s.split(/[,，、]/).some(range=>{
+    const m=range.trim().match(/^(\d+)(?:\s*[-–—]\s*(\d+))?$/);
+    if(!m)return false;
+    const a=Number(m[1]),b=m[2]?Number(m[2]):a;
+    return w>=a&&w<=b;
+  }));
+}
+function roomFor(c,w){
+  if(!c.inPerson&&w!=null&&c.onlineWeeks&&c.onlineWeeks.includes(w))return '线上';
+  return c.groups?[...new Set(c.groups.map(g=>g.room))].join(' / '):c.room;
+}
 function topicFor(c,w){return (w!=null&&c.topics&&c.topics[w-1])?c.topics[w-1]:'';}
 function dayHasClass(d){const w=weekOf(d);return COURSES.some(c=>c.dow===d.getDay()&&matchWeek(c.weeks,w))}
 function mondayOf(d){const x=new Date(d);const day=(x.getDay()+6)%7;x.setDate(x.getDate()-day);clearTime(x);return x}
+const overviewNotice='<div class="notice">尚未设置有效的学期起点，当前显示每周课程总览。请点右上角 ⚙ 设置实际的第一周星期一，再确认当日排课。</div>';
 
 let view='today',selDate=null,weekCursor=null,monthCursor=null,dayCursor=null;
 
@@ -209,7 +227,8 @@ function renderToday(){
   $('#prev').textContent='‹ 昨天';$('#next').textContent='明天 ›';
   const list=COURSES.filter(c=>c.dow===d.getDay()&&matchWeek(c.weeks,w)).sort((a,b)=>a.p0-b.p0);
   const cont=$('#content');
-  if(!list.length){cont.innerHTML='<div class="empty">这一天没有排课 🎉</div>';return;}
+  const notice=w==null?overviewNotice:'';
+  if(!list.length){cont.innerHTML=notice+'<div class="empty">这一天没有排课 🎉</div>';return;}
   let rows='';
   list.forEach(c=>{
     const on=matchWeek(c.weeks,w);
@@ -226,7 +245,7 @@ function renderToday(){
       <td><div class="cname" style="color:var(${COLORS[c.name]})">${c.name}${badge}</div>
         <div class="cmeta">${c.code}<br>${detail}${topicLine}</div></td></tr>`;
   });
-  cont.innerHTML=`<table class="today"><thead><tr><th>节次 / 时间</th><th>课程详情</th></tr></thead><tbody>${rows}</tbody></table>`;
+  cont.innerHTML=notice+`<table class="today"><thead><tr><th>节次 / 时间</th><th>课程详情</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 /* 本周（含总览）：横版表格，表头=星期，行=节次；本周课正常，其他周课灰度调暗 */
@@ -234,7 +253,7 @@ function renderWeek(){
   $('#nav').style.display='flex';
   const cont=$('#content');
   if(!weekCursor)weekCursor=mondayOf(new Date());
-  const mon=weekCursor,w=weekOf(mon),todayDow=new Date().getDay();
+  const mon=weekCursor,w=weekOf(mon);
   $('#navTitle').textContent=(w==null?'第?周':'第 '+w+' 周');
   $('#prev').textContent='‹ 上一周';$('#next').textContent='下一周 ›';
   const days=[1,2,3,4,5,6,0]; // 周一到周日
@@ -251,7 +270,7 @@ function renderWeek(){
   let head='<tr><th class="rowhd">节次 / 时间</th>';
   days.forEach(dow=>{
     const dt=new Date(mon);dt.setDate(mon.getDate()+((dow+6)%7));
-    const tcls=(dt.getDay()===todayDow&&weekOf(dt)===w)?'today':'';
+    const tcls=dt.toDateString()===new Date().toDateString()?'today':'';
     head+=`<th class="${tcls}">${WEEK_CN[dow]}<div class="d">${dt.getMonth()+1}/${dt.getDate()}</div></th>`;
   });
   head+='</tr>';
@@ -272,7 +291,7 @@ function renderWeek(){
     });
     body+='</tr>';
   });
-  cont.innerHTML=`<div class="wscroll"><table class="week"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+  cont.innerHTML=(w==null?overviewNotice:'')+`<div class="wscroll"><table class="week"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
 }
 
 /* 月历：每个日期格显示当日（按其教学周）的简要课程名 */
@@ -295,18 +314,19 @@ function renderMonth(){
     const isToday=d.toDateString()===today.toDateString();
     const isSel=selDate&&d.toDateString()===new Date(selDate).toDateString();
     const w=weekOf(d);
-    const list=COURSES.filter(cc=>cc.dow===d.getDay()&&matchWeek(cc.weeks,w)).sort((a,b)=>a.p0-b.p0);
+    const sessions=COURSES.filter(cc=>cc.dow===d.getDay()&&matchWeek(cc.weeks,w)).sort((a,b)=>a.p0-b.p0);
+    const list=[...new Map(sessions.map(cc=>[cc.code,cc])).values()];
     let names='';
     if(list.length){
       list.slice(0,3).forEach(cc=>names+=`<div class="cnm">${SHORT[cc.name]||cc.name}</div>`);
       if(list.length>3)names+=`<div class="cnm">+${list.length-3}</div>`;
     }
-    grid+=`<div class="mcell ${list.length?'has':''} ${isToday?'today':''} ${isSel?'sel':''}" data-d="${d.toISOString()}"><div class="dnum">${d.getDate()}</div>${names}</div>`;
+    grid+=`<div class="mcell ${list.length?'has':''} ${isToday?'today':''} ${isSel?'sel':''}" data-d="${dateKey(d)}"><div class="dnum">${d.getDate()}</div>${names}</div>`;
   });
   grid+='</div>';
-  cont.innerHTML=`<div class="month">${grid}</div>`;
+  cont.innerHTML=(!getSem()?overviewNotice:'')+`<div class="month">${grid}</div>`;
   cont.querySelectorAll('.mcell[data-d]').forEach(el=>el.addEventListener('click',()=>{
-    selDate=el.getAttribute('data-d');view='today';setTab('today');renderToday();
+    selDate=parseSem(el.getAttribute('data-d'));setTab('today');
   }));
 }
 
@@ -322,14 +342,23 @@ $('#prev').addEventListener('click',()=>{if(view==='today'){dayCursor.setDate(da
 $('#next').addEventListener('click',()=>{if(view==='today'){dayCursor.setDate(dayCursor.getDate()+1);renderToday();}else if(view==='week'){weekCursor.setDate(weekCursor.getDate()+7);renderWeek();}else if(view==='month'){monthCursor.setMonth(monthCursor.getMonth()+1);renderMonth();}});
 
 const sheet=$('#sheet');
-$('#gear').addEventListener('click',()=>{const s=getSem();if(s)$('#semStart').value=s.toISOString().slice(0,10);else $('#semStart').value='';sheet.classList.add('on');});
+$('#gear').addEventListener('click',()=>{
+  const s=parseSem(localStorage.getItem('kb_semstart'));
+  $('#semStart').value=s?dateKey(s):'';
+  $('#semHint').textContent=s&&s.getDay()!==1?'已保存的日期不是星期一，请按学校校历核对。':'请选择实际的第一周星期一。保存后会保存在本机；清空则显示课程总览。';
+  sheet.classList.add('on');
+});
 $('#closeSheet').addEventListener('click',()=>sheet.classList.remove('on'));
 sheet.addEventListener('click',e=>{if(e.target===sheet)sheet.classList.remove('on');});
-$('#saveSem').addEventListener('click',()=>{const v=$('#semStart').value;if(v)localStorage.setItem('kb_semstart',v);else localStorage.removeItem('kb_semstart');sheet.classList.remove('on');weekCursor=null;render();});
+$('#saveSem').addEventListener('click',()=>{
+  const v=$('#semStart').value,d=parseSem(v);
+  if(v&&(!d||d.getDay()!==1)){$('#semHint').textContent='请选择有效的星期一日期，作为学期第一周的起点。';return;}
+  if(v)localStorage.setItem('kb_semstart',v);else localStorage.removeItem('kb_semstart');
+  sheet.classList.remove('on');weekCursor=null;render();
+});
 
-/* 启动：默认今天为第一周周一 → 自动写入 */
-(function(){if(!localStorage.getItem('kb_semstart')){const t=new Date();const off=(t.getDay()+6)%7;t.setDate(t.getDate()-off);localStorage.setItem('kb_semstart',t.toISOString().slice(0,10));}})();
-monthCursor=new Date();
+/* 未设置学期时显示总览，不猜测教学周。月游标固定在月初，避免跨月跳过月份。 */
+monthCursor=new Date();monthCursor.setDate(1);
 render();
 </script>
 </body>
