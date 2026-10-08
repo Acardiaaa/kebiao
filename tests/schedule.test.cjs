@@ -38,9 +38,8 @@ class Element {
     if (!this.listeners.has(event)) this.listeners.set(event, []);
     this.listeners.get(event).push(listener);
   }
-  click() {
-    for (const listener of this.listeners.get('click') || []) listener({ target: this });
-  }
+  dispatch(event) { for (const listener of this.listeners.get(event) || []) listener({ target: this }); }
+  click() { this.dispatch('click'); }
   querySelectorAll(selector) {
     if (selector !== '.mcell[data-d]') throw new Error(`Unexpected selector: ${selector}`);
     this.cells = [...this.innerHTML.matchAll(/<div class="mcell ([^"]*)" data-d="([^"]+)">([\s\S]*?)(?=<div class="mcell |$)/g)]
@@ -183,7 +182,7 @@ test('opening and saving settings repeatedly preserves the local Monday date', (
 });
 
 test('invalid previously saved dates are preserved for correction and do not hide courses', () => {
-  for (const date of ['2026-09-06', '2026-02-30']) {
+  for (const date of ['2026-02-30', 'not-a-date']) {
     const app = load({ sem: date });
     assert.equal(app.stored.get('kb_semstart'), date);
     assert.deepEqual(app.writes, []);
@@ -191,24 +190,72 @@ test('invalid previously saved dates are preserved for correction and do not hid
     assert.match(app.content(), /课程总览/);
     assert.match(app.content(), /药物靶向传释系统/);
   }
-  const app = load({ sem: '2026-09-06' });
-  app.node('gear').click();
-  assert.equal(app.node('semStart').value, '2026-09-06');
-  assert.match(app.node('semHint').textContent, /不是星期一/);
 });
 
-test('saving a non-Monday keeps settings open and preserves the existing valid date', () => {
+test('saving an invalid date keeps settings open and preserves the existing valid date', () => {
   const app = load({ sem: '2026-09-07' });
   app.node('gear').click();
-  app.node('semStart').value = '2026-09-08';
-  app.node('saveSem').click();
-  assert.equal(app.stored.get('kb_semstart'), '2026-09-07');
-  assert.equal(app.node('sheet').classList.contains('on'), true);
-  assert.match(app.node('semHint').textContent, /星期一/);
+  for (const invalid of ['2026-02-30', 'not-a-date']) {
+    app.node('semStart').value = invalid;
+    app.node('saveSem').click();
+    assert.equal(app.stored.get('kb_semstart'), '2026-09-07');
+    assert.equal(app.node('sheet').classList.contains('on'), true);
+    assert.match(app.node('semHint').textContent, /有效.*日期/);
+    assert.deepEqual(app.writes, []);
+  }
   app.node('semStart').value = '';
   app.node('saveSem').click();
   assert.equal(app.stored.has('kb_semstart'), false);
   assert.match(app.content(), /课程总览/);
+});
+
+test('saving September 1 immediately confirms its week and persists the chosen local date', () => {
+  const app = load({ sem: '2026-09-07' });
+  assert.equal(app.node('hWk').textContent, '第 5 教学周');
+  app.node('gear').click();
+  app.node('semStart').value = '2026-09-01';
+  app.node('semStart').dispatch('input');
+  assert.match(app.node('semHint').textContent, /2026-08-31 至 2026-09-06/);
+  app.node('saveSem').click();
+  assert.equal(app.stored.get('kb_semstart'), '2026-09-01');
+  assert.equal(app.node('sheet').classList.contains('on'), false);
+  assert.match(app.node('saveStatus').textContent, /设置已保存.*2026-08-31 至 2026-09-06/);
+  assert.equal(app.node('hWk').textContent, '第 6 教学周');
+  app.tab('week');
+  assert.equal(app.node('navTitle').textContent, '第 6 周');
+  assert.equal(app.node('hWk').textContent, '第 6 教学周');
+  app.tab('month');
+  assert.equal(app.node('hWk').textContent, '第 6 教学周');
+  app.cell('2026-10-08').click();
+  assert.equal(app.node('navTitle').textContent, '10月8日 周四');
+  assert.equal(app.node('hWk').textContent, '第 6 教学周');
+  for (let i = 0; i < 3; i++) {
+    app.node('gear').click();
+    assert.equal(app.node('semStart').value, '2026-09-01');
+    app.node('saveSem').click();
+    assert.equal(app.stored.get('kb_semstart'), '2026-09-01');
+  }
+  const reloaded = load({ sem: app.stored.get('kb_semstart') });
+  assert.equal(reloaded.node('hWk').textContent, '第 6 教学周');
+  reloaded.node('gear').click();
+  assert.equal(reloaded.node('semStart').value, '2026-09-01');
+  assert.deepEqual(reloaded.writes, []);
+});
+
+test('a Tuesday or Sunday start anchors the entire first teaching week to its Monday', () => {
+  for (const sem of ['2026-09-01', '2026-09-06']) {
+    const app = load({ sem });
+    assert.ok(app.run('getSem()'));
+    assert.equal(app.stored.get('kb_semstart'), sem);
+    for (let offset = 0; offset < 14; offset++) {
+      assert.equal(app.run(`weekOf(new Date(2026, 7, 31 + ${offset}))`), offset < 7 ? 1 : 2, `${sem}, day ${offset}`);
+    }
+    app.node('gear').click();
+    assert.equal(app.node('semStart').value, sem);
+    app.node('saveSem').click();
+    assert.equal(app.stored.get('kb_semstart'), sem);
+    assert.match(app.node('saveStatus').textContent, /2026-08-31 至 2026-09-06/);
+  }
 });
 
 test('AI drug design is offline while instrument analysis retains its scheduled online weeks', () => {
