@@ -54,6 +54,7 @@
   .grp{font-size:12px;color:var(--sub);margin-top:4px}
   .empty{text-align:center;color:var(--sub);padding:38px 0;font-size:14px}
   .notice{color:var(--sub);font-size:12px;line-height:1.6;margin:0 2px 10px}
+  .notice:empty{display:none}
 
   /* 周横版表格 */
   .wscroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 2px}
@@ -105,6 +106,7 @@
     <div class="spacer"></div>
     <button class="gear" id="gear" aria-label="设置">⚙</button>
   </header>
+  <div id="saveStatus" class="notice" role="status" aria-live="polite"></div>
 
   <div class="tabs">
     <div class="tab on" data-v="today">今日</div>
@@ -121,7 +123,7 @@
   <div id="content"></div>
 
   <div class="foot">
-    数据来自《课表.doc》（学期代码 2026202701）。右上角 ⚙ 请设置实际的「学期第一周星期一」日期；未设置时显示课程总览。计算全部在本地完成，不上传数据。
+    数据来自《课表.doc》（学期代码 2026202701）。右上角 ⚙ 可选择第一教学周内的日期，例如开学当天；所在的周一至周日计为第 1 周。未设置时显示课程总览。计算全部在本地完成，不上传数据。
   </div>
 </div>
 
@@ -129,9 +131,9 @@
   <div class="panel">
     <button class="close" id="closeSheet">×</button>
     <h3>学期设置</h3>
-    <label for="semStart">学期第一周 · 星期一 的日期</label>
+    <label for="semStart">学期第一周内的日期</label>
     <input type="date" id="semStart">
-    <div class="hint" id="semHint" role="status">用于把日历日期换算成「第几教学周」。设置后会保存在本机。</div>
+    <div class="hint" id="semHint" role="status">可选择开学当天，所在的周一至周日计为第 1 教学周。设置后会保存在本机。</div>
     <button class="save" id="saveSem">保存</button>
   </div>
 </div>
@@ -189,8 +191,8 @@ function parseSem(s){
   const d=new Date(s+"T00:00:00");
   return isNaN(d)||dateKey(d)!==s?null:d;
 }
-function getSem(){const d=parseSem(localStorage.getItem('kb_semstart'));return d&&d.getDay()===1?d:null}
-function weekOf(d){const sem=getSem();if(!sem)return null;const diff=Math.round((clearTime(new Date(d))-clearTime(new Date(sem)))/86400000);return Math.floor(diff/7)+1}
+function getSem(){return parseSem(localStorage.getItem('kb_semstart'))}
+function weekOf(d){const sem=getSem();if(!sem)return null;const diff=Math.round((clearTime(new Date(d))-mondayOf(sem))/86400000);return Math.floor(diff/7)+1}
 function matchWeek(specs,w){
   if(w==null)return true;
   return specs.some(s=>s.split(/[,，、]/).some(range=>{
@@ -207,7 +209,8 @@ function roomFor(c,w){
 function topicFor(c,w){return (w!=null&&c.topics&&c.topics[w-1])?c.topics[w-1]:'';}
 function dayHasClass(d){const w=weekOf(d);return COURSES.some(c=>c.dow===d.getDay()&&matchWeek(c.weeks,w))}
 function mondayOf(d){const x=new Date(d);const day=(x.getDay()+6)%7;x.setDate(x.getDate()-day);clearTime(x);return x}
-const overviewNotice='<div class="notice">尚未设置有效的学期起点，当前显示每周课程总览。请点右上角 ⚙ 设置实际的第一周星期一，再确认当日排课。</div>';
+function semesterSummary(d){const mon=mondayOf(d),sun=new Date(mon);sun.setDate(sun.getDate()+6);return `第一教学周为 ${dateKey(mon)} 至 ${dateKey(sun)}（周一至周日）。`}
+const overviewNotice='<div class="notice">尚未设置有效的学期起点，当前显示每周课程总览。请点右上角 ⚙ 选择第一教学周内的日期，再确认当日排课。</div>';
 
 let view='today',selDate=null,weekCursor=null,monthCursor=null,dayCursor=null;
 
@@ -345,15 +348,17 @@ const sheet=$('#sheet');
 $('#gear').addEventListener('click',()=>{
   const s=parseSem(localStorage.getItem('kb_semstart'));
   $('#semStart').value=s?dateKey(s):'';
-  $('#semHint').textContent=s&&s.getDay()!==1?'已保存的日期不是星期一，请按学校校历核对。':'请选择实际的第一周星期一。保存后会保存在本机；清空则显示课程总览。';
+  $('#semHint').textContent=s?semesterSummary(s):'可选择开学当天，所在的周一至周日计为第 1 教学周。清空则显示课程总览。';
   sheet.classList.add('on');
 });
+$('#semStart').addEventListener('input',()=>{const d=parseSem($('#semStart').value);$('#semHint').textContent=d?semesterSummary(d):'可选择开学当天，所在的周一至周日计为第 1 教学周。清空则显示课程总览。';});
 $('#closeSheet').addEventListener('click',()=>sheet.classList.remove('on'));
 sheet.addEventListener('click',e=>{if(e.target===sheet)sheet.classList.remove('on');});
 $('#saveSem').addEventListener('click',()=>{
   const v=$('#semStart').value,d=parseSem(v);
-  if(v&&(!d||d.getDay()!==1)){$('#semHint').textContent='请选择有效的星期一日期，作为学期第一周的起点。';return;}
+  if(v&&!d){$('#semHint').textContent='请选择有效的日期，作为学期第一周的起点。';return;}
   if(v)localStorage.setItem('kb_semstart',v);else localStorage.removeItem('kb_semstart');
+  $('#saveStatus').textContent=d?'设置已保存：'+semesterSummary(d):'设置已清空，当前显示课程总览。';
   sheet.classList.remove('on');weekCursor=null;render();
 });
 
